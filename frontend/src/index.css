@@ -1,0 +1,12 @@
+/* Global reset – ép toàn trang chiếm 100% màn hình */
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100vh;
+  overflow-x: hidden;
+  max-width: 100%;
+  border: none;
+  text-align: left;
+  box-sizing: border-box;
+}
