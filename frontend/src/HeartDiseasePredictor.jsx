@@ -1,17 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     Form, InputNumber, Select, ConfigProvider, theme as antTheme,
     Space, Tooltip, message, Progress
 } from 'antd';
 import {
-    RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer
+    RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer,
+    PieChart, Pie, Cell, Tooltip as ReTooltip, Legend
 } from 'recharts';
 import axios from 'axios';
 import {
     HeartOutlined, UserOutlined, DashboardOutlined, FireOutlined,
     MedicineBoxOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
     ArrowRightOutlined, ArrowLeftOutlined, ReloadOutlined, BulbOutlined,
-    ClockCircleOutlined, DeleteOutlined, InfoCircleOutlined
+    ClockCircleOutlined, DeleteOutlined, InfoCircleOutlined,
+    UploadOutlined, FileTextOutlined, WarningOutlined, DownloadOutlined,
+    TableOutlined, BarChartOutlined
 } from '@ant-design/icons';
 import './HeartDiseasePredictor.css';
 
@@ -32,6 +35,21 @@ const FIELDS_BY_STEP = [
     ['glucose_mg_dl', 'cholesterol_mg_dl', 'systolic_bp', 'diastolic_bp'],
     ['smoking', 'alcohol_consumption', 'physical_activity', 'family_history'],
 ];
+
+const COLUMN_LABELS = {
+    age: 'Tuổi',
+    gender: 'Giới tính',
+    glucose_mg_dl: 'Đường huyết (mg/dL)',
+    cholesterol_mg_dl: 'Cholesterol (mg/dL)',
+    systolic_bp: 'Huyết áp tâm thu',
+    diastolic_bp: 'Huyết áp tâm trương',
+    bmi: 'BMI',
+    heart_rate: 'Nhịp tim',
+    smoking: 'Hút thuốc',
+    alcohol_consumption: 'Rượu bia',
+    physical_activity: 'Vận động',
+    family_history: 'Tiền sử gia đình',
+};
 
 /** Chuẩn hoá 6 chỉ số cho radar chart (0-100) */
 const getRadarData = (v) => {
@@ -87,11 +105,216 @@ const HistoryItem = ({ item, index, onRemove }) => {
             </div>
             <div className="history-item-right">
                 <div className="history-score" style={{ color }}>
-                    {item.confidence}%<span style={{ fontSize: 10, fontWeight: 400 }}> tin cậy</span>
+                    {item.confidence}%<span style={{ fontSize: 10, fontWeight: 400 }}>tin cậy</span>
                 </div>
                 <button className="history-remove-btn" onClick={() => onRemove(item.id)}
                     title="Xóa mục này">×</button>
             </div>
+        </div>
+    );
+};
+
+// ── Batch Result Table ──────────────────────────────────────────────────────
+const BatchResultTable = ({ results, originalFilename }) => {
+    const [filter, setFilter] = useState('all'); // 'all' | 'risk' | 'safe'
+    const [sortDesc, setSortDesc] = useState(true);
+
+    const filtered = results
+        .filter(r => filter === 'all' ? true : filter === 'risk' ? r.has_disease : !r.has_disease)
+        .sort((a, b) => sortDesc ? b.probability - a.probability : a.probability - b.probability);
+
+    const exportCSV = () => {
+        const header = 'row_index,has_disease,probability_percent\n';
+        const rows = results.map(r =>
+            `${r.row_index},${r.has_disease ? 'Yes' : 'No'},${r.probability}`
+        ).join('\n');
+        const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `cardioai_results_${Date.now()}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    return (
+        <div className="batch-table-wrapper">
+            <div className="batch-table-toolbar">
+                <div className="batch-filter-tabs">
+                    <button className={`filter-tab ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>
+                        Tất cả ({results.length})
+                    </button>
+                    <button className={`filter-tab risk ${filter === 'risk' ? 'active' : ''}`} onClick={() => setFilter('risk')}>
+                        ⚠ Nguy cơ cao ({results.filter(r => r.has_disease).length})
+                    </button>
+                    <button className={`filter-tab safe ${filter === 'safe' ? 'active' : ''}`} onClick={() => setFilter('safe')}>
+                        ✓ An toàn ({results.filter(r => !r.has_disease).length})
+                    </button>
+                </div>
+                <button className="btn-export" onClick={exportCSV}>
+                    <DownloadOutlined /> Tải về CSV
+                </button>
+            </div>
+
+            <div className="batch-table-scroll">
+                <table className="batch-table">
+                    <thead>
+                        <tr>
+                            <th>Bệnh nhân #</th>
+                            <th>Kết quả</th>
+                            <th onClick={() => setSortDesc(d => !d)} style={{ cursor: 'pointer' }}>
+                                Xác suất % {sortDesc ? '↓' : '↑'}
+                            </th>
+                            <th>Thanh mức độ</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {filtered.map(r => (
+                            <tr key={r.row_index} className={r.has_disease ? 'row-risk' : 'row-safe'}>
+                                <td className="td-index">#{r.row_index}</td>
+                                <td>
+                                    <span className={`result-badge ${r.has_disease ? 'danger' : 'safe'}`}>
+                                        {r.has_disease ? '⚠ Nguy cơ cao' : '✓ An toàn'}
+                                    </span>
+                                </td>
+                                <td className="td-prob">{r.probability}%</td>
+                                <td className="td-bar">
+                                    <div className="prob-bar-track">
+                                        <div
+                                            className={`prob-bar-fill ${r.has_disease ? 'danger' : 'safe'}`}
+                                            style={{ width: `${r.probability}%` }}
+                                        />
+                                    </div>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
+// ── Batch Summary Donut ────────────────────────────────────────────────────────
+const BatchSummaryChart = ({ highRisk, safe, darkMode }) => {
+    const data = [
+        { name: 'Nguy cơ cao', value: highRisk, color: '#e11d48' },
+        { name: 'An toàn', value: safe, color: '#10b981' },
+    ];
+    return (
+        <ResponsiveContainer width="100%" height={160}>
+            <PieChart>
+                <Pie data={data} cx="50%" cy="50%" innerRadius={45} outerRadius={70}
+                    dataKey="value" paddingAngle={3}>
+                    {data.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                </Pie>
+                <ReTooltip formatter={(v, n) => [`${v} bệnh nhân`, n]} />
+                <Legend iconType="circle" iconSize={10}
+                    wrapperStyle={{ fontSize: '12px', color: darkMode ? '#94a3b8' : '#64748b' }} />
+            </PieChart>
+        </ResponsiveContainer>
+    );
+};
+
+// ── Drop Zone ──────────────────────────────────────────────────────────────────
+const DropZone = ({ onFileSelect, isDragging, setIsDragging }) => {
+    const inputRef = useRef(null);
+
+    const handleDrop = useCallback((e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const file = e.dataTransfer.files?.[0];
+        if (file) onFileSelect(file);
+    }, [onFileSelect, setIsDragging]);
+
+    const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
+    const handleDragLeave = () => setIsDragging(false);
+
+    return (
+        <div
+            className={`drop-zone ${isDragging ? 'dragging' : ''}`}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onClick={() => inputRef.current?.click()}
+        >
+            <input ref={inputRef} type="file" accept=".csv" hidden
+                onChange={e => { if (e.target.files[0]) onFileSelect(e.target.files[0]); }} />
+            <div className="drop-zone-icon">
+                <UploadOutlined />
+            </div>
+            <div className="drop-zone-text">
+                <strong>Kéo thả file CSV vào đây</strong>
+                <span>hoặc click để chọn file</span>
+            </div>
+            <div className="drop-zone-hint">
+                Chấp nhận: .csv · Tối đa 1.000 bệnh nhân · 10 MB
+            </div>
+        </div>
+    );
+};
+
+// ── Missing Value Error Panel ──────────────────────────────────────────────────
+const MissingValuesError = ({ detail }) => {
+    if (!detail) return null;
+
+    if (detail.error_type === 'MISSING_COLUMNS') {
+        return (
+            <div className="upload-error-box column-error">
+                <div className="error-title"><WarningOutlined /> Không nhận dạng được cột dữ liệu</div>
+                <p>{detail.message}</p>
+                <div className="error-cols-grid">
+                    <div>
+                        <strong>Cột còn thiếu:</strong>
+                        <ul>{detail.missing_columns.map(c => <li key={c}><code>{c}</code> — {COLUMN_LABELS[c] || c}</li>)}</ul>
+                    </div>
+                    <div>
+                        <strong>Cột phát hiện trong file:</strong>
+                        <ul>{detail.detected_columns.map(c => <li key={c}><code>{c}</code></li>)}</ul>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (detail.error_type === 'MISSING_VALUES') {
+        return (
+            <div className="upload-error-box missing-error">
+                <div className="error-title"><WarningOutlined /> Dữ liệu bị khuyết — Cần bổ sung trước khi dự đoán</div>
+                <p>{detail.message}</p>
+                <div className="missing-table-scroll">
+                    <table className="missing-table">
+                        <thead>
+                            <tr><th>Tên cột</th><th>Ý nghĩa</th><th>Số ô thiếu</th><th>Hàng bị thiếu</th></tr>
+                        </thead>
+                        <tbody>
+                            {detail.missing_details.map(m => (
+                                <tr key={m.column}>
+                                    <td><code>{m.column}</code></td>
+                                    <td>{COLUMN_LABELS[m.column] || m.column}</td>
+                                    <td className="td-count">{m.count}</td>
+                                    <td className="td-rows">
+                                        {m.missing_rows.slice(0, 10).join(', ')}
+                                        {m.missing_rows.length > 10 ? ` ... (+${m.missing_rows.length - 10} hàng)` : ''}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+                <div className="error-action-hint">
+                    ↑ Vui lòng bổ sung đầy đủ các ô còn thiếu trong file CSV và upload lại.
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="upload-error-box generic-error">
+            <div className="error-title"><WarningOutlined /> Lỗi xử lý file</div>
+            <p>{typeof detail === 'string' ? detail : JSON.stringify(detail)}</p>
         </div>
     );
 };
@@ -105,8 +328,18 @@ const HeartDiseasePredictor = () => {
     const [loading, setLoading] = useState(false);
     const [step, setStep] = useState(0);
     const [showResult, setShowResult] = useState(false);
-    const [diagnosis, setDiagnosis] = useState(null);   // { hasDisease, confidence, values }
+    const [diagnosis, setDiagnosis] = useState(null);
     const [darkMode, setDarkMode] = useState(false);
+
+    // Tab state: 'manual' | 'upload'
+    const [activeTab, setActiveTab] = useState('manual');
+
+    // Upload state
+    const [uploadFile, setUploadFile] = useState(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const [uploadLoading, setUploadLoading] = useState(false);
+    const [uploadError, setUploadError] = useState(null);  // { error_type, ... }
+    const [batchResult, setBatchResult] = useState(null);   // { total, highRisk, safe, results[] }
 
     // Persist history to localStorage
     const [history, setHistory] = useState(() => {
@@ -129,14 +362,12 @@ const HeartDiseasePredictor = () => {
             const res = await axios.post('http://localhost:5000/api/predict', values);
             if (res.data.status === 'OK') {
                 const hasDisease = res.data.data.hasDisease;
-                // Chuyển đổi probability (0-1) thành % confidence (0-100)
                 const prob = res.data.data.probability || 0;
                 const confidence = parseFloat((prob * 100).toFixed(1));
 
                 setDiagnosis({ hasDisease, confidence, values });
                 setShowResult(true);
 
-                // Lưu lịch sử
                 const entry = {
                     id: Date.now(),
                     date: new Date().toLocaleDateString('vi-VN'),
@@ -161,10 +392,66 @@ const HeartDiseasePredictor = () => {
         setDiagnosis(null);
     };
 
+    // ── Upload handlers ──────────────────────────────────────────────────────
+    const handleFileSelect = (file) => {
+        setUploadFile(file);
+        setUploadError(null);
+        setBatchResult(null);
+    };
+
+    const handleRemoveFile = () => {
+        setUploadFile(null);
+        setUploadError(null);
+        setBatchResult(null);
+    };
+
+    const handleUploadPredict = async () => {
+        if (!uploadFile) return;
+        setUploadLoading(true);
+        setUploadError(null);
+        setBatchResult(null);
+
+        try {
+            const formData = new FormData();
+            formData.append('file', uploadFile);
+
+            const res = await axios.post('http://localhost:5000/api/predict/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+
+            if (res.data.status === 'OK') {
+                const d = res.data.data;
+                setBatchResult({
+                    total: d.total_patients,
+                    highRisk: d.high_risk_count,
+                    safe: d.safe_count,
+                    results: d.results,
+                    columnMappingApplied: d.column_mapping_applied,
+                });
+                // Thêm vào lịch sử
+                const entry = {
+                    id: Date.now(),
+                    date: new Date().toLocaleDateString('vi-VN'),
+                    time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+                    hasDisease: d.high_risk_count > 0,
+                    confidence: Math.round((d.high_risk_count / d.total_patients) * 100),
+                    isBatch: true,
+                    batchCount: d.total_patients,
+                };
+                setHistory(prev => [entry, ...prev].slice(0, 10));
+            }
+        } catch (err) {
+            const detail = err.response?.data?.error_details;
+            setUploadError(detail || err.message);
+        } finally {
+            setUploadLoading(false);
+        }
+    };
+
     const removeHistory = (id) => setHistory(prev => prev.filter(i => i.id !== id));
     const clearHistory = () => setHistory([]);
 
-    // ── RENDER ──────────────────────────────────────────────────
+    // ── RENDER ──────────────────────────────────────────────────────────────
     return (
         <ConfigProvider theme={{ algorithm: darkMode ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm }}>
             <div className={`cardioai-root${darkMode ? ' dark-mode' : ''}`}>
@@ -198,8 +485,8 @@ const HeartDiseasePredictor = () => {
                     {/* ── LEFT: Form / Result ──────────────────────── */}
                     <div className="main-left">
 
-                        {/* Hero – only when form is shown */}
-                        {!showResult && (
+                        {/* Hero */}
+                        {!showResult && !batchResult && (
                             <div className="hero-section">
                                 <h1 className="hero-title">
                                     Hệ thống Dự báo<br />
@@ -229,8 +516,27 @@ const HeartDiseasePredictor = () => {
 
                         {/* Main card */}
                         <div className="main-card">
-                            {!showResult ? (
-                                /* ─── FORM ─── */
+
+                            {/* ─── TAB SWITCHER ─── */}
+                            {!showResult && !batchResult && (
+                                <div className="tab-switcher">
+                                    <button
+                                        className={`tab-btn ${activeTab === 'manual' ? 'active' : ''}`}
+                                        onClick={() => { setActiveTab('manual'); setUploadError(null); setUploadFile(null); }}
+                                    >
+                                        <UserOutlined /> Nhập tay
+                                    </button>
+                                    <button
+                                        className={`tab-btn ${activeTab === 'upload' ? 'active' : ''}`}
+                                        onClick={() => { setActiveTab('upload'); setShowResult(false); }}
+                                    >
+                                        <UploadOutlined /> Upload CSV
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* ─── MANUAL FORM ─── */}
+                            {!showResult && !batchResult && activeTab === 'manual' && (
                                 <>
                                     {/* Progress header */}
                                     <div className="form-header">
@@ -252,10 +558,8 @@ const HeartDiseasePredictor = () => {
                                         </div>
                                     </div>
 
-                                    {/* Form fields */}
                                     <Form form={form} layout="vertical" onFinish={onFinish} requiredMark={false}>
-
-                                        {/* Step 1 – Cơ bản */}
+                                        {/* Step 1 */}
                                         <div className="form-step" style={{ display: step === 0 ? 'block' : 'none' }}>
                                             <div className="section-label"><UserOutlined /> Chỉ số cơ thể &amp; Nền tảng</div>
                                             <div className="form-grid">
@@ -294,7 +598,7 @@ const HeartDiseasePredictor = () => {
                                             </div>
                                         </div>
 
-                                        {/* Step 2 – Lâm sàng */}
+                                        {/* Step 2 */}
                                         <div className="form-step" style={{ display: step === 1 ? 'block' : 'none' }}>
                                             <div className="section-label"><DashboardOutlined /> Thông số Xét nghiệm</div>
                                             <div className="form-grid">
@@ -341,43 +645,43 @@ const HeartDiseasePredictor = () => {
                                             </div>
                                         </div>
 
-                                        {/* Step 3 – Lối sống */}
+                                        {/* Step 3 */}
                                         <div className="form-step" style={{ display: step === 2 ? 'block' : 'none' }}>
                                             <div className="section-label"><FireOutlined /> Hành vi &amp; Di truyền</div>
                                             <div className="form-grid">
                                                 <Form.Item name="smoking" label="Hút thuốc lá"
                                                     rules={[{ required: true, message: 'Vui lòng chọn' }]}>
                                                     <Select placeholder="Chọn trạng thái" size="large">
-                                                        <Option value="Yes">🚬 Có hút thuốc</Option>
-                                                        <Option value="No">✅ Không hút</Option>
+                                                        <Option value="Yes">Có hút thuốc</Option>
+                                                        <Option value="No">Không hút</Option>
                                                     </Select>
                                                 </Form.Item>
                                                 <Form.Item name="alcohol_consumption" label="Sử dụng rượu bia"
                                                     rules={[{ required: true, message: 'Vui lòng chọn' }]}>
                                                     <Select placeholder="Chọn trạng thái" size="large">
-                                                        <Option value="Yes">🍺 Có sử dụng</Option>
-                                                        <Option value="No">✅ Không sử dụng</Option>
+                                                        <Option value="Yes">Có sử dụng</Option>
+                                                        <Option value="No">Không sử dụng</Option>
                                                     </Select>
                                                 </Form.Item>
                                                 <Form.Item name="physical_activity" label="Mức độ vận động thể chất"
                                                     rules={[{ required: true, message: 'Vui lòng chọn' }]}>
                                                     <Select placeholder="Chọn mức độ" size="large">
-                                                        <Option value="Low">🛋️ Thấp (Ít vận động)</Option>
-                                                        <Option value="Medium">🚶 Trung bình</Option>
-                                                        <Option value="High">🏃 Cao (Chơi thể thao)</Option>
+                                                        <Option value="Low">Thấp (Ít vận động)</Option>
+                                                        <Option value="Medium">Trung bình (2-3 ngày/tuần)</Option>
+                                                        <Option value="High">Cao (4-5 ngày/tuần)</Option>
                                                     </Select>
                                                 </Form.Item>
                                                 <Form.Item name="family_history" label="Tiền sử bệnh tim trong gia đình"
                                                     rules={[{ required: true, message: 'Vui lòng chọn' }]}>
                                                     <Select placeholder="Chọn trạng thái" size="large">
-                                                        <Option value="Yes">⚠️ Có tiền sử bệnh</Option>
-                                                        <Option value="No">✅ Không có</Option>
+                                                        <Option value="Yes">Có tiền sử bệnh</Option>
+                                                        <Option value="No">Không có</Option>
                                                     </Select>
                                                 </Form.Item>
                                             </div>
                                         </div>
 
-                                        {/* Navigation buttons */}
+                                        {/* Navigation */}
                                         <div className="form-nav">
                                             {step > 0
                                                 ? <button type="button" className="btn btn-ghost" onClick={prevStep}>
@@ -396,11 +700,72 @@ const HeartDiseasePredictor = () => {
                                         </div>
                                     </Form>
                                 </>
-                            ) : (
-                                /* ─── RESULT PANEL ─── */
-                                <div className="result-panel">
+                            )}
 
-                                    {/* Banner */}
+                            {/* ─── UPLOAD TAB ─── */}
+                            {!showResult && !batchResult && activeTab === 'upload' && (
+                                <div className="upload-panel">
+                                    <div className="upload-panel-header">
+                                        <FileTextOutlined className="upload-panel-icon" />
+                                        <div>
+                                            <div className="upload-panel-title">Dự đoán hàng loạt qua CSV</div>
+                                            <div className="upload-panel-sub">
+                                                Upload file CSV chứa dữ liệu nhiều bệnh nhân. Hệ thống tự động nhận dạng tên cột.
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Required columns hint */}
+                                    <div className="required-cols-hint">
+                                        <strong>Các cột bắt buộc:</strong>
+                                        <div className="cols-chips">
+                                            {Object.entries(COLUMN_LABELS).map(([k, v]) => (
+                                                <span key={k} className="col-chip"><code>{k}</code> ({v})</span>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Drop Zone or File Preview */}
+                                    {!uploadFile ? (
+                                        <DropZone
+                                            onFileSelect={handleFileSelect}
+                                            isDragging={isDragging}
+                                            setIsDragging={setIsDragging}
+                                        />
+                                    ) : (
+                                        <div className="file-preview">
+                                            <div className="file-preview-icon"><FileTextOutlined /></div>
+                                            <div className="file-preview-info">
+                                                <div className="file-name">{uploadFile.name}</div>
+                                                <div className="file-size">
+                                                    {(uploadFile.size / 1024).toFixed(1)} KB
+                                                </div>
+                                            </div>
+                                            <button className="file-remove-btn" onClick={handleRemoveFile} title="Xóa file">×</button>
+                                        </div>
+                                    )}
+
+                                    {/* Error Panel */}
+                                    {uploadError && (
+                                        <MissingValuesError detail={uploadError} />
+                                    )}
+
+                                    {/* Action Button */}
+                                    <button
+                                        className={`btn btn-upload-predict ${uploadLoading ? 'loading' : ''}`}
+                                        onClick={handleUploadPredict}
+                                        disabled={!uploadFile || uploadLoading}
+                                    >
+                                        {uploadLoading
+                                            ? <><span className="loading-spinner">⟳</span> Đang phân tích dữ liệu...</>
+                                            : <><BarChartOutlined /> Phân tích hàng loạt</>}
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* ─── SINGLE RESULT ─── */}
+                            {showResult && diagnosis && (
+                                <div className="result-panel">
                                     <div className={`result-banner ${diagnosis.hasDisease ? 'danger' : 'safe'}`}>
                                         <div className="result-banner-icon">
                                             {diagnosis.hasDisease
@@ -419,7 +784,6 @@ const HeartDiseasePredictor = () => {
                                         </div>
                                     </div>
 
-                                    {/* Charts Grid */}
                                     <div className="charts-grid">
                                         <div className="chart-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                                             <div className="chart-title" style={{ width: '100%', textAlign: 'left' }}>Độ tin cậy của AI (Confidence)</div>
@@ -447,7 +811,6 @@ const HeartDiseasePredictor = () => {
                                         </div>
                                     </div>
 
-                                    {/* Recommendations */}
                                     <div className={`recommendations ${diagnosis.hasDisease ? 'danger' : 'safe'}`}>
                                         <h4 className="rec-title">
                                             {diagnosis.hasDisease
@@ -474,13 +837,69 @@ const HeartDiseasePredictor = () => {
                                     </button>
                                 </div>
                             )}
+
+                            {/* ─── BATCH RESULT PANEL ─── */}
+                            {batchResult && (
+                                <div className="batch-result-panel">
+                                    {/* Summary header */}
+                                    <div className="batch-summary-header">
+                                        <div className="batch-summary-stats">
+                                            <div className="batch-stat total">
+                                                <span className="batch-stat-value">{batchResult.total}</span>
+                                                <span className="batch-stat-label">Tổng bệnh nhân</span>
+                                            </div>
+                                            <div className="batch-stat risk">
+                                                <span className="batch-stat-value">{batchResult.highRisk}</span>
+                                                <span className="batch-stat-label">Nguy cơ cao</span>
+                                            </div>
+                                            <div className="batch-stat safe">
+                                                <span className="batch-stat-value">{batchResult.safe}</span>
+                                                <span className="batch-stat-label">An toàn</span>
+                                            </div>
+                                            <div className="batch-stat pct">
+                                                <span className="batch-stat-value">
+                                                    {Math.round((batchResult.highRisk / batchResult.total) * 100)}%
+                                                </span>
+                                                <span className="batch-stat-label">Tỷ lệ nguy cơ</span>
+                                            </div>
+                                        </div>
+                                        <div className="batch-donut-wrapper">
+                                            <BatchSummaryChart
+                                                highRisk={batchResult.highRisk}
+                                                safe={batchResult.safe}
+                                                darkMode={darkMode}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Column mapping note */}
+                                    {batchResult.columnMappingApplied && Object.keys(batchResult.columnMappingApplied).length > 0 && (
+                                        <div className="mapping-notice">
+                                            <InfoCircleOutlined /> Hệ thống đã tự động ánh xạ tên cột:{' '}
+                                            {Object.entries(batchResult.columnMappingApplied).map(([orig, mapped]) => (
+                                                orig !== mapped ? <span key={orig}><code>{orig}</code> → <code>{mapped}</code></span> : null
+                                            )).filter(Boolean)}
+                                        </div>
+                                    )}
+
+                                    {/* Result Table */}
+                                    <BatchResultTable results={batchResult.results} />
+
+                                    <button className="btn btn-ghost reset-btn" onClick={() => {
+                                        setBatchResult(null);
+                                        setUploadFile(null);
+                                        setUploadError(null);
+                                        setActiveTab('upload');
+                                    }}>
+                                        <ReloadOutlined /> Upload file mới
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
 
                     {/* ── RIGHT: History Sidebar ─────────────────────── */}
                     <aside className="main-right">
-
-                        {/* History card */}
                         <div className="history-card">
                             <div className="history-header">
                                 <h3 className="history-title"><ClockCircleOutlined /> Lịch sử phân tích</h3>
@@ -506,7 +925,6 @@ const HeartDiseasePredictor = () => {
                             )}
                         </div>
 
-                        {/* Info card */}
                         <div className="info-card">
                             <h4><BulbOutlined /> Về mô hình AI</h4>
                             <p>
