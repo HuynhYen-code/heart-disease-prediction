@@ -15,35 +15,48 @@ Hệ thống được chia thành 3 phân hệ hoạt động độc lập:
 
 ## 🚀 Hướng dẫn Cài đặt & Chạy dự án
 
-Yêu cầu môi trường: `Node.js` (v18+) và `Python` (v3.10+). Cần mở 3 Terminal độc lập để chạy 3 dịch vụ.
+**Yêu cầu môi trường:** `Node.js` (v18+) · `npm` (v9+) · `Python` (v3.10+)
 
-### 1. Khởi động AI Service (Terminal 1)
+Cần mở **3 Terminal độc lập** để chạy 3 dịch vụ đồng thời.
+
+### 0. Cấu hình biến môi trường (chạy một lần)
+```bash
+cd backend
+# Windows
+copy .env.example .env
+# macOS / Linux
+cp .env.example .env
+```
+> File `.env` đã có giá trị mặc định phù hợp cho môi trường local, không cần chỉnh sửa gì thêm.
+
+### 1. Khởi động AI Service – Python / FastAPI (Terminal 1)
 ```bash
 cd models
 python -m venv venv
-# Activate venv:
-# Windows: .\venv\Scripts\activate
-# macOS/Linux: source venv/bin/activate
+
+# Kích hoạt môi trường ảo:
+# Windows:      .\venv\Scripts\activate
+# macOS/Linux:  source venv/bin/activate
 
 pip install -r requirements.txt
 uvicorn app:app --reload
-# AI Service chạy tại: [http://127.0.0.1:8000](http://127.0.0.1:8000)
+# ✅ AI Service chạy tại: http://127.0.0.1:8000
 ```
 
-### 2. Khởi động Backend Gateway (Terminal 2)
+### 2. Khởi động Backend Gateway – Node.js / Express (Terminal 2)
 ```bash
 cd backend
 npm install
-node server.js
-# Backend chạy tại: http://localhost:5000
+npm start
+# ✅ Backend chạy tại: http://localhost:5000
 ```
 
-### 3. Khởi động Frontend (Terminal 3)
+### 3. Khởi động Frontend – React / Vite (Terminal 3)
 ```bash
 cd frontend
 npm install
 npm run dev
-# Frontend chạy tại: http://localhost:5173
+# ✅ Giao diện chạy tại: http://localhost:5173
 ```
 
 ## 📊 Bộ Dữ liệu & Đóng góp

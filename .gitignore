@@ -9,6 +9,7 @@ build/
 # Môi trường và Logs
 .env
 .env.local
+!.env.example
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

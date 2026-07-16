@@ -1,4 +1,16 @@
 {
+  "name": "cardioai-backend",
+  "version": "1.0.0",
+  "description": "Node.js gateway for CardioAI – forwards requests to the FastAPI AI service.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
   "dependencies": {
     "axios": "^1.18.1",
     "cors": "^2.8.6",
